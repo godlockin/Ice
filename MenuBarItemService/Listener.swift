@@ -74,7 +74,15 @@ final class Listener {
 
         do {
             if #available(macOS 26.0, *) {
-                try uncheckedActivateWithSameTeamRequirement()
+                // Same-team peer requirements cannot be satisfied by
+                // processes without a team identifier, such as ad-hoc
+                // signed local builds, so only enforce them when we have
+                // a team of our own.
+                if CodeSigningInfo.hasTeamIdentifier {
+                    try uncheckedActivateWithSameTeamRequirement()
+                } else {
+                    try uncheckedActivate()
+                }
             } else {
                 try uncheckedActivate()
             }
