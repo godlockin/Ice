@@ -22,6 +22,8 @@ BUILD="$STAGE/build"
 OUT_APP="$ROOT/build/Ice.app"
 ASSETS_URL="https://github.com/jordanbaird/Ice/releases/download/0.11.13-dev.2/Ice.zip"
 ASSETS_ZIP="$STAGE/assets/Ice-0.11.13-dev.2.zip"
+# Integrity pin for the downloaded asset archive (Ice 0.11.13-dev.2).
+ASSETS_SHA256="c1bbaa71f61ebfe5ee928f790af60963a9f202364d63f78d2c6b3ec5105cf4a0"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*" }
 die() { printf '\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1 }
@@ -63,7 +65,7 @@ let package = Package(
     name: "Ice",
     platforms: [.macOS(.v14)],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.5.2"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.2"),
         .package(url: "https://github.com/sindresorhus/LaunchAtLogin-Modern", from: "1.0.0"),
         .package(url: "https://github.com/tmandry/AXSwift", from: "0.3.2"),
         .package(url: "https://github.com/buh/CompactSlider", from: "1.1.5"),
@@ -120,6 +122,8 @@ log "fetching compiled asset catalog"
 if [[ ! -f "$ASSETS_ZIP" ]]; then
     curl -fsSL -o "$ASSETS_ZIP" "$ASSETS_URL" || die "could not download asset archive from $ASSETS_URL"
 fi
+echo "$ASSETS_SHA256  $ASSETS_ZIP" | shasum -a 256 --check --quiet ||
+    die "asset archive failed integrity check (expected SHA-256 $ASSETS_SHA256); delete $ASSETS_ZIP to re-download"
 rm -rf "$STAGE/assets/extracted"
 mkdir -p "$STAGE/assets/extracted"
 ditto -x -k "$ASSETS_ZIP" "$STAGE/assets/extracted"
@@ -250,8 +254,8 @@ printf 'APPL????' > "$CONT/PkgInfo"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$CONT/MacOS/Ice" 2>/dev/null || true
 
 # ---------------------------------------------------------------- sign
-log "signing (ad-hoc)"
-codesign --force --sign - "$XPC"
-codesign --force --sign - "$OUT_APP"
+log "signing (ad-hoc, hardened runtime)"
+codesign --force --sign - --options runtime "$XPC"
+codesign --force --sign - --options runtime "$OUT_APP"
 
 log "done: $OUT_APP"
