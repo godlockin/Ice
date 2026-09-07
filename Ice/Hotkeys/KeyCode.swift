@@ -7,6 +7,10 @@ import Carbon.HIToolbox
 
 /// Representation of a physical key on a keyboard.
 struct KeyCode: Codable, Hashable, RawRepresentable {
+    /// The range of valid virtual key codes. Values outside of this
+    /// range are rejected when decoding stored configurations.
+    static let validRange = 0...127
+
     let rawValue: Int
 
     // MARK: Letters

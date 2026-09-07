@@ -151,9 +151,21 @@ final class HotkeyRegistry {
 
         let hotKeyID = EventHotKeyID(signature: signature, id: id)
         var hotKeyRef: EventHotKeyRef?
+
+        // Belt and suspenders for the decoder-side validation: converting
+        // an out-of-range value to UInt32 traps, so make sure stored
+        // combinations can't crash us here either.
+        guard
+            let keyCode = UInt32(exactly: keyCombination.key.rawValue),
+            let carbonFlags = UInt32(exactly: keyCombination.modifiers.carbonFlags)
+        else {
+            Logger.hotkeys.error("Hotkey key combination contains out-of-range values; not registering")
+            return nil
+        }
+
         status = RegisterEventHotKey(
-            UInt32(keyCombination.key.rawValue),
-            UInt32(keyCombination.modifiers.carbonFlags),
+            keyCode,
+            carbonFlags,
             hotKeyID,
             GetEventDispatcherTarget(),
             0,

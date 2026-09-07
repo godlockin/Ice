@@ -71,8 +71,20 @@ extension KeyCombination: Codable {
             let description = "Expected 2 encoded values, found \(container.count ?? 0)"
             throw DecodingError.dataCorruptedError(in: container, debugDescription: description)
         }
-        self.key = try KeyCode(rawValue: container.decode(Int.self))
-        self.modifiers = try Modifiers(rawValue: container.decode(Int.self))
+        let key = KeyCode(rawValue: try container.decode(Int.self))
+        let modifiers = try Modifiers(rawValue: container.decode(Int.self))
+        // Stored key combinations are untrusted input (any process in
+        // the user session can write to our defaults domain), so reject
+        // out-of-range values before they reach the Carbon hotkey APIs,
+        // where an invalid conversion would trap.
+        guard KeyCode.validRange.contains(key.rawValue), modifiers.rawValue >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Encoded key combination contains invalid values"
+            )
+        }
+        self.key = key
+        self.modifiers = modifiers
     }
 
     func encode(to encoder: any Encoder) throws {

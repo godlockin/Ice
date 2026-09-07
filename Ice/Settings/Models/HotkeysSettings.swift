@@ -54,6 +54,13 @@ final class HotkeysSettings: ObservableObject {
             }
             do {
                 if let keyCombination = try decoder.decode(KeyCombination?.self, from: data) {
+                    // Stored configurations are untrusted input, so don't
+                    // register combinations that are reserved for system
+                    // use, even though the UI prevents setting them.
+                    guard !keyCombination.isSystemReserved else {
+                        Logger.serialization.error("Ignoring system-reserved hotkey combination")
+                        continue
+                    }
                     hotkey.keyCombination = keyCombination
                 }
             } catch {
