@@ -203,7 +203,7 @@ final class MenuBarItemImageCache: ObservableObject {
         logger.notice(
             """
             Some items were excluded from composite capture. Attempting to capture \
-            excluded items individually: \(compositeResult.excluded, privacy: .public)
+            excluded items individually: \(compositeResult.excluded)
             """
         )
 
@@ -222,7 +222,7 @@ final class MenuBarItemImageCache: ObservableObject {
         let items = await appState.itemManager.itemCache.managedItems(for: section)
         let captureResult = await captureImages(of: items, scale: scale, appState: appState)
         if !captureResult.excluded.isEmpty {
-            logger.error("Some items failed capture: \(captureResult.excluded, privacy: .public)")
+            logger.error("Some items failed capture: \(captureResult.excluded)")
         }
         return captureResult.images
     }
@@ -264,8 +264,19 @@ final class MenuBarItemImageCache: ObservableObject {
             newImages.merge(sectionImages) { (_, new) in new }
         }
 
-        await MainActor.run { [newImages] in
+        // Compute the set of tags that currently have menu bar items, so
+        // that images for items that no longer exist can be evicted.
+        var validTags = Set<MenuBarItemTag>()
+        for section in MenuBarSection.Name.allCases {
+            let items = await appState.itemManager.itemCache.managedItems(for: section)
+            validTags.formUnion(items.map(\.tag))
+        }
+
+        await MainActor.run { [newImages, validTags] in
             images.merge(newImages) { (_, new) in new }
+            // Evict images for items that no longer exist, so captures
+            // of hidden or removed items don't stay cached indefinitely.
+            images = images.filter { validTags.contains($0.key) }
         }
     }
 

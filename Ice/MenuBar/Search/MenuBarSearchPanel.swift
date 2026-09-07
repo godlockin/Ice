@@ -36,8 +36,10 @@ final class MenuBarSearchPanel: NSPanel {
         return event
     }
 
-    /// Monitor for key down events.
-    private lazy var keyDownMonitor = EventMonitor.universal(
+    /// Monitor for key down events. The monitor is local, as the panel
+    /// is made key when shown; a global monitor would observe keystrokes
+    /// destined for other applications.
+    private lazy var keyDownMonitor = EventMonitor.local(
         for: [.keyDown]
     ) { [weak self] event in
         if KeyCode(rawValue: Int(event.keyCode)) == .escape {

@@ -75,10 +75,10 @@ final class MenuBarItemSpacingManager {
     /// Asynchronously signals the given app to quit.
     private func signalAppToQuit(_ app: NSRunningApplication) async throws {
         if app.isTerminated {
-            logger.debug("Application \"\(app.logString, privacy: .public)\" is already terminated")
+            logger.debug("Application \"\(app.logString)\" is already terminated")
             return
         } else {
-            logger.debug("Signaling application \"\(app.logString, privacy: .public)\" to quit")
+            logger.debug("Signaling application \"\(app.logString)\" to quit")
         }
 
         app.terminate()
@@ -90,7 +90,7 @@ final class MenuBarItemSpacingManager {
                 if !app.isTerminated {
                     logger.debug(
                         """
-                        Application \"\(app.logString, privacy: .public)\" did not terminate within \
+                        Application \"\(app.logString)\" did not terminate within \
                         \(self.forceTerminateDelay, privacy: .public) seconds, attempting to force terminate
                         """
                     )
@@ -107,7 +107,7 @@ final class MenuBarItemSpacingManager {
                 }
                 timeoutTask.cancel()
                 cancellable?.cancel()
-                logger.debug("Application \"\(app.logString, privacy: .public)\" terminated successfully")
+                logger.debug("Application \"\(app.logString)\" terminated successfully")
                 continuation.resume()
             }
         }
@@ -116,7 +116,7 @@ final class MenuBarItemSpacingManager {
     /// Asynchronously launches the app at the given URL.
     private nonisolated func launchApp(at applicationURL: URL, bundleIdentifier: String) async throws {
         if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) {
-            logger.debug("Application \"\(app.logString, privacy: .public)\" is already open, so skipping launch")
+            logger.debug("Application \"\(app.logString)\" is already open, so skipping launch")
             return
         }
         let configuration = NSWorkspace.OpenConfiguration()
