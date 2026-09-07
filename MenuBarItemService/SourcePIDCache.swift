@@ -80,19 +80,59 @@ final class SourcePIDCache {
 
     /// State for the cache.
     private struct State {
+        /// The duration that a failed lookup is remembered before the
+        /// window is scanned again.
+        static let failedLookupTTL: TimeInterval = 5
+
+        /// The maximum rate at which unknown windows are scanned. Every
+        /// scan of an unknown window performs accessibility queries
+        /// against all running applications, so this bounds the amount
+        /// of work a client can trigger.
+        static let maxUnknownScansPerSecond = 10
+
         var apps = [CachedApplication]()
         var pids = [CGWindowID: pid_t]()
+
+        /// The times at which lookups last failed, keyed by window ID.
+        var failedLookups = [CGWindowID: Date]()
+
+        /// A fractional token bucket limiting scans of unknown windows.
+        var scanTokens = Double(maxUnknownScansPerSecond)
+        var lastScanTokenRefill = Date()
+
+        /// Refills the scan token bucket based on the time elapsed
+        /// since the last refill.
+        mutating func refillScanTokens(now: Date) {
+            let elapsed = now.timeIntervalSince(lastScanTokenRefill)
+            guard elapsed > 0 else {
+                return
+            }
+            scanTokens = min(Double(Self.maxUnknownScansPerSecond), scanTokens + elapsed * Double(Self.maxUnknownScansPerSecond))
+            lastScanTokenRefill = now
+        }
+
+        /// Prunes the failed lookup map if it has grown too large, as
+        /// can happen when a client floods the service with requests
+        /// for random window IDs.
+        mutating func pruneFailedLookups(now: Date) {
+            guard failedLookups.count > 512 else {
+                return
+            }
+            let recent = failedLookups
+                .filter { now.timeIntervalSince($0.value) < Self.failedLookupTTL }
+            failedLookups = recent
+        }
 
         /// Returns the latest bounds of the given window after ensuring
         /// that the bounds are stable (a.k.a. not currently changing).
         ///
         /// This method blocks until stable bounds can be determined, or
         /// until retrieving the bounds for the window fails.
-        private func stableBounds(for window: WindowInfo) -> CGRect? {
-            var cachedBounds = window.bounds
+        private mutating func stableBounds(for windowID: CGWindowID, initialBounds: CGRect) -> CGRect? {
+            var cachedBounds = initialBounds
 
             for n in 1...5 {
-                guard let currentBounds = window.currentBounds() else {
+                guard let currentBounds = Bridging.getWindowBounds(for: windowID) else {
                     // Failure here means the window probably doesn't
                     // exist anymore.
                     return nil
@@ -126,10 +166,10 @@ final class SourcePIDCache {
         }
 
         /// Updates the cached process identifier for the given window.
-        mutating func updatePID(for window: WindowInfo) {
+        mutating func updatePID(for windowID: CGWindowID, initialBounds: CGRect) {
             guard
                 AXHelpers.isProcessTrusted(),
-                let windowBounds = stableBounds(for: window)
+                let windowBounds = stableBounds(for: windowID, initialBounds: initialBounds)
             else {
                 return
             }
@@ -150,7 +190,7 @@ final class SourcePIDCache {
                     else {
                         continue
                     }
-                    pids[window.windowID] = app.processIdentifier
+                    pids[windowID] = app.processIdentifier
                     return
                 }
             }
@@ -218,13 +258,40 @@ final class SourcePIDCache {
 
     /// Returns the cached process identifier for the given window,
     /// updating the cache if needed.
-    func pid(for window: WindowInfo) -> pid_t? {
+    func pid(for query: MenuBarItemService.SourcePIDQuery) -> pid_t? {
         state.withLock { state in
-            if let pid = state.pids[window.windowID] {
+            if let pid = state.pids[query.windowID] {
                 return pid
             }
-            state.updatePID(for: window)
-            return state.pids[window.windowID]
+
+            let now = Date()
+            state.refillScanTokens(now: now)
+
+            // Don't rescan a window whose last lookup recently failed.
+            if
+                let failedAt = state.failedLookups[query.windowID],
+                now.timeIntervalSince(failedAt) < State.failedLookupTTL
+            {
+                return nil
+            }
+
+            // Don't perform expensive scans of unknown windows at an
+            // unbounded rate.
+            guard state.scanTokens >= 1 else {
+                Logger.default.warning("Rate limiting source PID lookups for unknown windows")
+                return nil
+            }
+            state.scanTokens -= 1
+
+            state.updatePID(for: query.windowID, initialBounds: query.bounds)
+
+            if state.pids[query.windowID] == nil {
+                state.failedLookups[query.windowID] = now
+                state.pruneFailedLookups(now: now)
+            } else {
+                state.failedLookups.removeValue(forKey: query.windowID)
+            }
+            return state.pids[query.windowID]
         }
     }
 }

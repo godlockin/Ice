@@ -3,6 +3,7 @@
 //  Shared
 //
 
+import CoreGraphics
 import Foundation
 
 enum MenuBarItemService {
@@ -10,9 +11,19 @@ enum MenuBarItemService {
 }
 
 extension MenuBarItemService {
+    /// A request for the source process identifier of the menu bar
+    /// item window with the given window ID.
+    ///
+    /// Only the fields the service actually needs are sent, to keep
+    /// the decode surface on the service side as small as possible.
+    struct SourcePIDQuery: Codable {
+        let windowID: CGWindowID
+        let bounds: CGRect
+    }
+
     enum Request: Codable {
         case start
-        case sourcePID(WindowInfo)
+        case sourcePID(SourcePIDQuery)
     }
 
     enum Response: Codable {
