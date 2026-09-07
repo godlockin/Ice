@@ -1,0 +1,87 @@
+name: Upstream sync
+
+# Merges new upstream commits (jordanbaird/Ice main and macos-26) into
+# this fork's main on a schedule. If a merge would conflict, nothing is
+# pushed and an issue is opened instead.
+#
+# Note: GitHub disables scheduled workflows in forks until you enable
+# them from the Actions tab, and automatically disables any scheduled
+# workflow after 60 days without repository activity.
+
+on:
+  schedule:
+    - cron: "30 19 * * *" # daily, 19:30 UTC (03:30 Beijing)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge upstream branches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: jordanbaird/Ice
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch upstream main macos-26
+
+          merged_any=false
+          conflicted=""
+
+          for branch in main macos-26; do
+            if git merge-base --is-ancestor "upstream/$branch" HEAD; then
+              echo "upstream/$branch is already merged; skipping"
+              continue
+            fi
+            echo "Merging upstream/$branch..."
+            if git merge --no-edit "upstream/$branch"; then
+              merged_any=true
+              echo "Merged upstream/$branch"
+            else
+              git merge --abort
+              conflicted="upstream/$branch"
+              break
+            fi
+          done
+
+          if [ -n "$conflicted" ]; then
+            title="Upstream sync needs a manual merge"
+            body="The scheduled upstream sync could not merge \`$conflicted\` into \`main\` without conflicts.
+
+          The merge was aborted and nothing was pushed. Please merge \`$conflicted\` from [$UPSTREAM_REPO](https://github.com/$UPSTREAM_REPO) manually, then close this issue.
+
+          ---
+          Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $title" --json number --jq 'length')
+            if [ "$existing" = "0" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+            fi
+            echo "::error::Merge conflict with $conflicted; issue opened"
+            exit 1
+          fi
+
+          if [ "$merged_any" = false ]; then
+            echo "Upstream has no new commits; nothing to do"
+            exit 0
+          fi
+
+          echo "Pushing merged main"
+          git push origin main

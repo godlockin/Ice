@@ -1,0 +1,90 @@
+name: Release build
+
+# Builds Ice.app (Release, ad-hoc signed, hardened runtime, universal)
+# with Xcode on a macOS 26 runner and attaches the zip and its SHA-256
+# to a GitHub release.
+#
+# Triggers:
+#   - automatically when a release is published
+#   - manually from the Actions tab with a tag (creates a draft release
+#     if one doesn't exist for the tag yet)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and attach to (e.g. v0.11.13-dev.2a.1)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-build-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Cache SwiftPM packages
+        uses: actions/cache@v4
+        with:
+          path: build/DerivedData/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Ice.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Ice.xcodeproj \
+            -scheme Ice \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            build \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            ONLY_ACTIVE_ARCH=NO
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          APP="build/DerivedData/Build/Products/Release/Ice.app"
+          test -d "$APP"
+          codesign --verify --deep "$APP"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" Ice-macOS.zip
+          shasum -a 256 Ice-macOS.zip > Ice-macOS.zip.sha256
+          echo "## Build summary" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat Ice-macOS.zip.sha256 >> "$GITHUB_STEP_SUMMARY"
+          /usr/bin/codesign -dv "$APP" 2>&1 | grep -E "Identifier|TeamIdentifier|flags" >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY"; then
+            echo "No release for $TAG; creating a draft"
+            git tag "$TAG" 2>/dev/null || true
+            git push origin "$TAG" 2>/dev/null || true
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "$TAG" \
+              --notes "Automated build. The app is ad-hoc signed: on first launch, right-click Ice.app and choose Open, then grant Accessibility and Screen Recording permissions."
+          fi
+          gh release upload "$TAG" Ice-macOS.zip Ice-macOS.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Attached assets to release $TAG"

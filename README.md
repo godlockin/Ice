@@ -107,6 +107,15 @@ Ice uses a number of system APIs that are available starting in macOS 14. As suc
 
 ![Menu Bar Item Spacing](https://github.com/user-attachments/assets/b196aa7e-184a-4d4c-b040-502f4aae40a6)
 
+## About this fork
+
+This fork keeps Ice working on macOS 26 (Tahoe) and adds automation under `.github/workflows`:
+
+- **Upstream sync** — a scheduled workflow (daily) merges new commits from [jordanbaird/Ice](https://github.com/jordanbaird/Ice) `main` and `macos-26` into this fork's `main`. If a merge would conflict, nothing is pushed and an issue is opened instead. Note that GitHub disables scheduled workflows in forks until you enable them from the Actions tab, and automatically disables any schedule after 60 days without repository activity.
+- **Release build** — publishing a release (or dispatching the workflow with a tag) builds the app with Xcode on a macOS 26 runner — Release configuration, ad-hoc signed with the hardened runtime, universal binary — and attaches `Ice-macOS.zip` plus its SHA-256 to the release.
+
+Builds are ad-hoc signed. On first launch of a downloaded build, right-click `Ice.app` and choose **Open** (or run `xattr -dr com.apple.quarantine /Applications/Ice.app`), then grant Accessibility and Screen Recording permissions. Because each build has a different ad-hoc signature, permissions must be re-granted after every reinstall.
+
 ## License
 
 Ice is available under the [GPL-3.0 license](LICENSE).
